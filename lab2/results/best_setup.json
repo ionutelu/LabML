@@ -1,0 +1,10 @@
+{
+  "approach": "C",
+  "dataset": "C_feature_engineering",
+  "test_size": 0.2,
+  "stratified": true,
+  "k": 10,
+  "remove_outliers": true,
+  "balance": "class_weight",
+  "baseline_cv_f1": 0.7489
+}
