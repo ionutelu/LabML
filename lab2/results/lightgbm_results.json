@@ -1,0 +1,20 @@
+{
+  "cv_f1": 0.7719,
+  "test_accuracy": 0.7696,
+  "test_precision": 0.75,
+  "test_recall": 0.7563,
+  "test_f1": 0.7523,
+  "best_params": {
+    "num_leaves": 39,
+    "max_depth": 4,
+    "learning_rate": 0.015145052741202598,
+    "n_estimators": 750,
+    "min_child_samples": 21,
+    "subsample": 0.6771565847382404,
+    "colsample_bytree": 0.6028367710658658,
+    "reg_lambda": 0.038125757400722,
+    "reg_alpha": 0.12536868677163762,
+    "min_split_gain": 0.04176770063599203,
+    "subsample_freq": 1
+  }
+}

@@ -374,9 +374,65 @@ The default model has low bias but high variance; tuning reduced the variance ma
 row/column subsampling. The remaining gap is largely irreducible: the classes cut a continuous price into bins. A test score is
 accurate to about ±0.02 with 586 houses.
 
-## 7. Bonus (`04_bonus_lightgbm.ipynb`) — *planned*
+## 7. Bonus: LightGBM vs. XGBoost (`04_bonus_lightgbm.ipynb`)
 
-LightGBM on the same features as the winning approach; compare how the trees are built (with plots), the learning process and the results.
+Same features (approach C), split, folds, outlier removal and class weights as XGBoost; tuned the same way (Optuna, TPE, 100 trials,
+study `lightgbm_approach_C` in the same SQLite file). Results saved to `results/lightgbm_results.json`.
+
+**Practical note:** LightGBM is ≈ 5× faster with 1 thread than with 8 on this small dataset (thread overhead), so each model uses
+1 thread and Optuna runs 4 trials in parallel. LightGBM replaces spaces in feature names with `_`; importances are mapped back.
+
+### How the trees are built
+
+| | XGBoost | LightGBM |
+|---|---|---|
+| Growth | level-wise: every node of a level is split → balanced trees | leaf-wise (best-first): always the leaf with the largest loss reduction → deep, unbalanced trees |
+| Size limit | `max_depth` | `num_leaves` (+ optional `max_depth`) |
+| Split finding | histograms | histograms; Exclusive Feature Bundling for sparse features |
+| Multiclass | one tree per class per round | the same |
+
+**Demonstration with the same leaf budget (16 leaves, learning rate 0.1, 100 rounds):**
+
+| | Mean depth (max) | Mean leaves | Train macro-F1 | CV macro-F1 |
+|---|---|---|---|---|
+| XGBoost `max_depth` = 4 | 4.0 (4) | 11.8 | 0.957 | 0.736 |
+| LightGBM `num_leaves` = 16 | 8.5 (14) | 16.0 | 0.998 | 0.751 |
+
+- XGBoost trees are always exactly depth 4 and often do not use all 16 leaves; LightGBM always uses 16 leaves, at depth 5–14.
+- Drawn tree (round 1, class 3): LightGBM's first split sends 717 expensive houses straight to a leaf and spends the other leaves on a
+  9-level branch of mid-sized, mid-quality houses — where class 3 must be separated from classes 2 and 4.
+- Same budget → LightGBM fits faster (better CV here, but also more variance per leaf).
+
+### Results
+
+| | XGBoost | LightGBM |
+|---|---|---|
+| Default CV macro-F1 | 0.749 | 0.748 |
+| Tuned CV macro-F1 | **0.773** | 0.772 |
+| Test macro-F1 | **0.763** | 0.752 |
+| Test accuracy | **0.775** | 0.770 |
+| Test log-loss | 0.587 | **0.562** |
+| Time per boosting round (1 thread) | 4.0 ms | **1.9 ms** |
+| Tuned trees | mean depth ≈ 3.1, ≈ 8 leaves | mean depth ≈ 3.9, ≈ 10 leaves |
+
+**Best LightGBM hyperparameters:** `max_depth` 4, `num_leaves` 39 (never reached: depth 4 allows at most 16), `learning_rate` 0.015,
+`n_estimators` 750, `min_child_samples` 21, `subsample` 0.68 (`subsample_freq` 1), `colsample_bytree` 0.60, `reg_lambda` 0.038,
+`reg_alpha` 0.125, `min_split_gain` 0.042.
+
+**Interpretation**
+- **Optuna limited leaf-wise growth:** with `max_depth` = 4 LightGBM's trees become shallow; deep leaf-wise trees overfit 2300 houses.
+  Both tuned models converge to small trees (≈ 8–10 leaves) — tuning makes the two algorithms more alike.
+- **Learning process:** XGBoost (lr 0.082) reaches its lowest validation log-loss after ≈ 100 rounds, then the loss rises slightly
+  (over-confident probabilities) while macro-F1 stays flat. LightGBM (lr 0.015) learns slowly and smoothly, lowest validation loss at
+  ≈ round 600. Both end at validation macro-F1 ≈ 0.77–0.78.
+- **No significant difference in macro-F1:** test difference −0.011, bootstrap 95% interval ≈ [−0.037, +0.010]; CV almost identical.
+  Per class within ≈ 0.01 except class 6 (0.74 vs. 0.69 — about one of 13 houses).
+- **LightGBM has better-calibrated probabilities** (lower log-loss), matching the learning curves.
+- **Speed:** ≈ 2× faster per round. EFB is not the reason (switching it off changes nothing here). The ≈ 6× faster Optuna search
+  (7.6 vs. 44 min) is mainly due to parallel single-threaded trials — not a fair library comparison.
+- **Feature importance** is very similar: `Quality x SF`, `Total SF`, `Gr Liv Area` are the top 3 by gain in both.
+- **Conclusion:** different tree construction, same performance after tuning — the limit is the data (class boundaries in a
+  continuous price), not the algorithm. XGBoost remains the final model (slight, non-significant edge in macro-F1).
 
 ---
 
@@ -401,7 +457,7 @@ LightGBM on the same features as the winning approach; compare how the trees are
 | Manual hyperparameter experiments | `03` | ✅ |
 | Optuna `TPESampler` + optimization plots | `03` | ✅ |
 | Results described in Markdown | every notebook | ongoing |
-| Bonus: LightGBM / AdaBoost / CatBoost | `04` | ⏳ |
+| Bonus: LightGBM / AdaBoost / CatBoost | `04` | ✅ LightGBM |
 
 ---
 
@@ -450,3 +506,6 @@ brew install graphviz     # system program needed to plot trees (not a Python pa
 | Argmax kept instead of tuned thresholds | thresholds gave no gain on unseen data (nested CV −0.001); class weights already balance the classes |
 | "Best tree" = tree with the largest total gain | clear and works with the final model; no early-stopping split needed |
 | Paired bootstrap on the test part | quantifies how precise a 586-house test score is |
+| Bonus with LightGBM | leaf-wise growth is the clearest contrast to XGBoost's level-wise trees |
+| LightGBM: 1 thread per model, 4 parallel Optuna trials | 5× faster per model on this small dataset; search in ≈ 8 min |
+| XGBoost stays the final model | LightGBM is not significantly different; XGBoost has the slightly higher CV and test macro-F1 |
